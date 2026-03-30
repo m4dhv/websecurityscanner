@@ -23,6 +23,9 @@ class WebSecurityScanner:
         return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
     def crawl(self, url: str, depth: int = 0) -> None:
+        """
+        Crawl the website to discover pages and endpoints.
+        """
         if depth > self.max_depth or url in self.visited_urls:
             return
 
@@ -31,7 +34,8 @@ class WebSecurityScanner:
             response = self.session.get(url, verify=False)
             soup = BeautifulSoup(response.text, 'html.parser')
 
-            for link in soup.find_all('a', href=True):
+            links = soup.find_all('a', href=True)
+            for link in links:
                 next_url = urllib.parse.urljoin(url, link['href'])
                 if next_url.startswith(self.target_url):
                     self.crawl(next_url, depth + 1)
@@ -48,7 +52,10 @@ class WebSecurityScanner:
                 params = urllib.parse.parse_qs(parsed.query)
 
                 for param in params:
-                    test_url = url.replace(f"{param}={params[param][0]}", f"{param}={payload}")
+                    test_url = url.replace(
+                        f"{param}={params[param][0]}",
+                        f"{param}={payload}"
+                    )
                     response = self.session.get(test_url)
 
                     if any(error in response.text.lower() for error in
@@ -105,7 +112,8 @@ class WebSecurityScanner:
             response = self.session.get(url)
 
             for info_type, pattern in sensitive_patterns.items():
-                for match in re.finditer(pattern, response.text):
+                matches = re.finditer(pattern, response.text)
+                for match in matches:
                     self.report_vulnerability({
                         'type': 'Sensitive Information Exposure',
                         'url': url,
@@ -116,20 +124,9 @@ class WebSecurityScanner:
         except Exception as e:
             print(f"Error checking sensitive information on {url}: {str(e)}")
 
-    def quickscan(self) -> List[Dict]:
-        """Scan only the target URL directly — no crawling."""
-        print(f"\n{colorama.Fore.BLUE}[Quick Scan] {self.target_url}{colorama.Style.RESET_ALL}\n")
-        self.visited_urls.add(self.target_url)
+    def scan(self) -> List[Dict]:
+        print(f"\n{colorama.Fore.BLUE}Starting security scan of {self.target_url}{colorama.Style.RESET_ALL}\n")
 
-        self.check_sql_injection(self.target_url)
-        self.check_xss(self.target_url)
-        self.check_sensitive_info(self.target_url)
-
-        return self.vulnerabilities
-
-    def deepscan(self) -> List[Dict]:
-        """Crawl the site first, then run all checks on every discovered URL."""
-        print(f"\n{colorama.Fore.BLUE}[Deep Scan] {self.target_url}{colorama.Style.RESET_ALL}\n")
         self.crawl(self.target_url)
 
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -149,14 +146,13 @@ class WebSecurityScanner:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3 or sys.argv[1] not in ("--quickscan", "--deepscan"):
-        print("Usage: python scanner.py --quickscan|--deepscan <target_url>")
+    if len(sys.argv) != 2:
+        print("Usage: python scanner.py <target_url>")
         sys.exit(1)
 
-    mode, target_url = sys.argv[1], sys.argv[2]
+    target_url = sys.argv[1]
     scanner = WebSecurityScanner(target_url)
-
-    vulnerabilities = scanner.quickscan() if mode == "--quickscan" else scanner.deepscan()
+    vulnerabilities = scanner.scan()
 
     print(f"\n{colorama.Fore.GREEN}Scan Complete!{colorama.Style.RESET_ALL}")
     print(f"Total URLs scanned: {len(scanner.visited_urls)}")

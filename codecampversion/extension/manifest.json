@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Security Scanner",
+  "version": "1.0",
+  "description": "Scan websites for vulnerabilities",
+  "permissions": ["activeTab", "scripting"],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
