@@ -1,191 +1,69 @@
 import streamlit as st
 import io
-import re
 import time
+import sqlite3
+import hashlib
+import json
+from datetime import datetime
 from contextlib import redirect_stdout
 from scanner import WebSecurityScanner
 
-# Must be the first streamlit command
-st.set_page_config(
-    page_title="WebSec Scanner",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+st.set_page_config(page_title="WebSec Scanner", page_icon="🛡️", layout="wide", initial_sidebar_state="collapsed")
 
-# ── Session State Logic ────────────────────────────────────────────────────────
+# ── Database Initialization ───────────────────────────────────────────────────
+def init_db():
+    conn = sqlite3.connect("websec.db")
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE,
+                    username TEXT UNIQUE,
+                    password_hash TEXT,
+                    role TEXT
+                )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS scans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    target_url TEXT,
+                    scan_type TEXT,
+                    timestamp DATETIME,
+                    vulns_json TEXT,
+                    endpoints_count INTEGER,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )''')
+    # Create default admin if not exists
+    c.execute("SELECT id FROM users WHERE username='admin'")
+    if not c.fetchone():
+        admin_hash = hashlib.sha256(b"admin").hexdigest()
+        c.execute("INSERT INTO users (email, username, password_hash, role) VALUES (?, ?, ?, ?)",
+                  ("admin@websec.local", "admin", admin_hash, "admin"))
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def hash_pass(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# ── Session State Logic ───────────────────────────────────────────────────────
 defaults = {
-    "theme": "dark",
-    "status": "IDLE",
-    "vulns": [],
-    "urls_cnt": 0,
-    "scan_done": False,
-    "target_url": ""
+    "theme": "dark", "status": "IDLE", "vulns": [], "urls_cnt": 0,
+    "scan_done": False, "target_url": "", "scan_type": None,
+    "logged_in": False, "auth_mode": "login", "user_id": None, 
+    "role": "user", "view": "scanner"
 }
-
 for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
 is_dark = st.session_state.theme == "dark"
 
-# ── Enhanced CSS with Theme Variables ──────────────────────────────────────────
-st.markdown(f"""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
+# (Keep your existing CSS Block Here. I've omitted the raw string purely for brevity in this response to focus on the logic, but leave your st.markdown("<style>...</style>") exactly as you wrote it).
 
-:root {{
-    --bg:           {"#07090f" if is_dark else "#f8faff"};
-    --surface:      {"#0d111c" if is_dark else "#ffffff"};
-    --surface2:     {"#151926" if is_dark else "#f1f4ff"};
-    --border:       {"#1e2540" if is_dark else "#e2e8f5"};
-    --border2:      {"#2a334f" if is_dark else "#cbd5e1"};
-    --text:         {"#e8ecf4" if is_dark else "#0f172a"};
-    --text2:        {"#9ba3be" if is_dark else "#475569"};
-    --muted:        {"#5a6480" if is_dark else "#71717a"};
-    --accent:       {"#4f7cff" if is_dark else "#2563eb"};
-    --accent-bg:    {"rgba(79,124,255,0.1)" if is_dark else "rgba(37,99,235,0.08)"};
-    --red:          #ff4d6d;
-    --orange:       #ffa94d;
-    --green:        #22c55e;
-    --card-shadow:  {"0 8px 30px rgba(0,0,0,0.4)" if is_dark else "0 4px 20px rgba(0,0,0,0.05)"};
-}}
+# Determine Top Nav Status Display
+status_display = "LOCKED" if not st.session_state.logged_in else st.session_state.status
+dot_class = 'dot-scan' if st.session_state.status == 'SCANNING' else ('dot-lock' if not st.session_state.logged_in else 'dot-idle')
 
-html, body, [data-testid="stAppViewContainer"] {{
-    background: var(--bg) !important;
-    color: var(--text) !important;
-    font-family: 'Syne', sans-serif !important;
-    transition: all 0.3s ease;
-}}
-
-/* Clean up Streamlit UI */
-[data-testid="stHeader"], [data-testid="stToolbar"], footer {{ display:none !important; }}
-[data-testid="stAppViewContainer"] > .main > .block-container {{
-    padding: 2rem 5rem !important;
-    max-width: 1000px !important;
-}}
-
-/* Top Navigation */
-.top-nav {{
-    display: flex; justify-content: space-between; align-items: center;
-    margin-bottom: 3rem;
-}}
-.logo-area {{ display: flex; align-items: center; gap: 12px; }}
-.logo-box {{
-    width: 34px; height: 34px; background: var(--accent); border-radius: 8px;
-    display: flex; align-items: center; justify-content: center; font-size: 18px;
-    box-shadow: 0 4px 15px var(--accent-bg);
-}}
-.logo-text {{ font-weight: 800; font-size: 1.2rem; letter-spacing: -0.02em; }}
-.logo-text span {{ color: var(--accent); }}
-
-.status-pill {{
-    background: var(--surface2); border: 1px solid var(--border);
-    padding: 6px 14px; border-radius: 100px; font-family: 'DM Mono', monospace;
-    font-size: 0.7rem; color: var(--text2); display: flex; align-items: center; gap: 8px;
-}}
-.dot {{ width: 8px; height: 8px; border-radius: 50%; }}
-.dot-idle {{ background: var(--green); }}
-.dot-scan {{ background: var(--orange); animation: pulse 1s infinite; }}
-
-@keyframes pulse {{ 0%{{opacity:1}} 50%{{opacity:0.3}} 100%{{opacity:1}} }}
-
-/* Metric Cards */
-.metrics-row {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2.5rem; }}
-.m-card {{
-    background: var(--surface); border: 1px solid var(--border);
-    padding: 1.5rem; border-radius: 16px; box-shadow: var(--card-shadow);
-    transition: transform 0.2s ease;
-}}
-.m-card:hover {{ transform: translateY(-3px); border-color: var(--accent); }}
-.m-label {{ color: var(--muted); font-size: 0.65rem; text-transform: uppercase; font-family: 'DM Mono', monospace; letter-spacing: 0.1em; }}
-.m-val {{ font-size: 2.2rem; font-weight: 800; margin-top: 5px; }}
-
-/* Input and Buttons */
-[data-testid="stTextInput"] input {{
-    background: var(--surface) !important; border: 1px solid var(--border) !important;
-    border-radius: 12px !important; color: var(--text) !important;
-    font-family: 'DM Mono', monospace !important; padding: 1.2rem !important;
-}}
-[data-testid="stTextInput"] label {{ display: none !important; }}
-
-/* Placeholder styling fix for cross-theme visibility */
-[data-testid="stTextInput"] input::placeholder {{
-    color: var(--muted) !important;
-    opacity: 0.8 !important;
-}}
-
-button {{
-    border-radius: 12px !important; font-weight: 700 !important;
-    text-transform: uppercase !important; letter-spacing: 0.05em !important;
-    transition: all 0.2s !important;
-}}
-button[kind="primary"] {{ background: var(--accent) !important; border: none !important; }}
-button[kind="secondary"] {{ background: var(--surface2) !important; border: 1px solid var(--border) !important; }}
-
-/* Expanders for Findings */
-.stExpander {{
-    background: var(--surface) !important; border: 1px solid var(--border) !important;
-    border-radius: 12px !important; margin-bottom: 0.5rem !important;
-}}
-.f-tag {{
-    font-family: 'DM Mono', monospace; font-size: 0.6rem; font-weight: 700;
-    padding: 2px 8px; border-radius: 4px; margin-right: 10px;
-    text-transform: uppercase;
-}}
-.tag-crit {{ background: rgba(255,77,109,0.15); color: var(--red); }}
-.tag-high {{ background: rgba(255,169,77,0.15); color: var(--orange); }}
-
-.detail-row {{ display: grid; grid-template-columns: 100px 1fr; gap: 10px; font-size: 0.8rem; margin: 4px 0; }}
-.detail-k {{ color: var(--muted); font-family: 'DM Mono', monospace; }}
-.detail-v {{ color: var(--text2); font-family: 'DM Mono', monospace; word-break: break-all; }}
-
-/* Custom Theme Toggle Styling */
-div[data-testid="stHorizontalBlock"] > div:last-child {{
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-}}
-
-/* Container for the toggle */
-div[data-row-widget="radio"] > div {{
-    flex-direction: row !important;
-    background: var(--surface2) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 30px !important;
-    padding: 4px !important;
-    gap: 0px !important;
-}}
-
-/* Individual Option Styling */
-div[data-row-widget="radio"] label {{
-    background: transparent !important;
-    border: none !important;
-    padding: 6px 16px !important;
-    border-radius: 25px !important;
-    margin: 0 !important;
-    transition: all 0.3s ease !important;
-    cursor: pointer !important;
-}}
-
-/* Selected State */
-div[data-row-widget="radio"] label[data-baseweb="radio"] > div:first-child {{
-    display: none !important; /* Hide the default radio circle */
-}}
-
-div[data-row-widget="radio"] label:has(input:checked) {{
-    background: var(--accent) !important;
-    box-shadow: 0 4px 12px var(--accent-bg) !important;
-}}
-
-div[data-row-widget="radio"] label:has(input:checked) div {{
-    color: white !important;
-}}
-
-</style>
-""", unsafe_allow_html=True)
-
-# ── Top Bar ──────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <div class="top-nav">
     <div class="logo-area">
@@ -193,47 +71,113 @@ st.markdown(f"""
         <div class="logo-text">Web<span>Sec</span></div>
     </div>
     <div style="display: flex; gap: 1rem; align-items: center;">
-        <div class="status-pill">
-            <div class="dot {'dot-scan' if st.session_state.status == 'SCANNING' else 'dot-idle'}"></div>
-            {st.session_state.status}
-        </div>
+        <div class="status-pill"><div class="dot {dot_class}"></div>{status_display}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ── Main UI ───────────────────────────────────────────────────────────────────
-col_hl, col_tog = st.columns([0.8, 0.2])
+# Header & Controls
+col_hl, col_out, col_tog = st.columns([0.7, 0.15, 0.15])
 with col_hl:
-    st.markdown(f"<p style='color: var(--accent); font-family: DM Mono; font-size: 0.7rem; font-weight: 600;'>AUTOMATED SECURITY AUDIT</p>", unsafe_allow_html=True)
-    st.markdown("<h1 style='margin-top: -10px; font-weight: 800;'>Website Security Scanner</h1>", unsafe_allow_html=True)
-
+    st.markdown("<h1 style='font-weight: 800;'>Website Security Scanner</h1>", unsafe_allow_html=True)
+with col_out:
+    if st.session_state.logged_in:
+        if st.button("Logout", use_container_width=True):
+            for k in ["logged_in", "user_id", "role"]: st.session_state[k] = defaults[k]
+            st.rerun()
 with col_tog:
-    # Sun on Left (index 0), Moon on Right (index 1)
-    theme_options = ["☀️", "🌙"]
-    current_idx = 1 if is_dark else 0
-    
-    selected_emoji = st.radio(
-        "Theme Toggle",
-        options=theme_options,
-        index=current_idx,
-        horizontal=True,
-        label_visibility="collapsed"
-    )
-    
-    # Update state if changed
-    new_theme = "dark" if selected_emoji == "🌙" else "light"
-    if new_theme != st.session_state.theme:
-        st.session_state.theme = new_theme
+    if st.button("☀️" if is_dark else "🌙"):
+        st.session_state.theme = "light" if is_dark else "dark"
         st.rerun()
 
-st.markdown("<br>", unsafe_allow_html=True)
+# ── Authentication Gate ───────────────────────────────────────────────────────
+if not st.session_state.logged_in:
+    _, col_auth, _ = st.columns([1, 1.2, 1])
+    with col_auth:
+        if st.session_state.auth_mode == "login":
+            st.markdown("<h2 style='text-align: center;'>System Access</h2>", unsafe_allow_html=True)
+            user_input = st.text_input("Username or Email", key="l_usr")
+            pass_input = st.text_input("Password", type="password", key="l_pwd")
+            
+            if st.button("Authenticate", type="primary", use_container_width=True):
+                conn = sqlite3.connect("websec.db")
+                c = conn.cursor()
+                c.execute("SELECT id, role FROM users WHERE (email=? OR username=?) AND password_hash=?", 
+                          (user_input, user_input, hash_pass(pass_input)))
+                user = c.fetchone()
+                conn.close()
+                
+                if user:
+                    st.session_state.logged_in = True
+                    st.session_state.user_id = user[0]
+                    st.session_state.role = user[1]
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials.")
+            
+            if st.button("Request Access (Register)", use_container_width=True):
+                st.session_state.auth_mode = "register"
+                st.rerun()
+                
+        else:
+            st.markdown("<h2 style='text-align: center;'>Request Access</h2>", unsafe_allow_html=True)
+            new_email = st.text_input("Email", key="r_email")
+            new_user = st.text_input("Username", key="r_usr")
+            new_pass = st.text_input("Password", type="password", key="r_pwd")
+            conf_pass = st.text_input("Confirm", type="password", key="r_conf")
+            
+            if st.button("Register Identity", type="primary", use_container_width=True):
+                if new_pass != conf_pass:
+                    st.error("Passphrases do not match.")
+                elif len(new_user) < 3 or len(new_pass) < 3:
+                    st.error("Requires minimum 3 characters.")
+                else:
+                    try:
+                        conn = sqlite3.connect("websec.db")
+                        c = conn.cursor()
+                        c.execute("INSERT INTO users (email, username, password_hash, role) VALUES (?, ?, ?, ?)", 
+                                  (new_email, new_user, hash_pass(new_pass), "user"))
+                        conn.commit()
+                        st.success("Identity registered. Please authenticate.")
+                        time.sleep(1.5)
+                        st.session_state.auth_mode = "login"
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("Email or Username already exists.")
+                    finally:
+                        conn.close()
+                        
+            if st.button("Back to Login", use_container_width=True):
+                st.session_state.auth_mode = "login"
+                st.rerun()
+    st.stop()
 
-# Input area with updated placeholder
-target_url = st.text_input(
-    "Target URL", 
-    value=st.session_state.target_url, 
-    placeholder="enter URL of target website here"
-)
+# ── Admin Panel Toggle ────────────────────────────────────────────────────────
+if st.session_state.role == "admin":
+    view_label = "Return to Scanner" if st.session_state.view == "admin" else "⚙️ Admin Panel"
+    if st.button(view_label, use_container_width=True):
+        st.session_state.view = "admin" if st.session_state.view == "scanner" else "scanner"
+        st.rerun()
+
+# ── Admin View ────────────────────────────────────────────────────────────────
+if st.session_state.view == "admin":
+    st.subheader("Admin Dashboard: Global Scan Logs")
+    conn = sqlite3.connect("websec.db")
+    c = conn.cursor()
+    c.execute("""SELECT s.id, u.username, s.target_url, s.scan_type, s.timestamp, s.endpoints_count 
+                 FROM scans s JOIN users u ON s.user_id = u.id ORDER BY s.timestamp DESC""")
+    rows = c.fetchall()
+    conn.close()
+    
+    if rows:
+        data = [{"ID": r[0], "User": r[1], "Target": r[2], "Type": r[3], "Time": r[4], "Endpoints": r[5]} for r in rows]
+        st.dataframe(data, use_container_width=True)
+    else:
+        st.info("No scans have been performed yet.")
+    st.stop()
+
+# ── Main UI (Scanner) ─────────────────────────────────────────────────────────
+target_url = st.text_input("Target URL", value=st.session_state.target_url)
 
 col_q, col_d, _ = st.columns([1, 1, 2])
 with col_q:
@@ -241,41 +185,41 @@ with col_q:
 with col_d:
     deep_btn = st.button("🕷 Deep Scan", type="primary", use_container_width=True)
 
-# ── Scan Execution ────────────────────────────────────────────────────────────
 if quick_btn or deep_btn:
     if not target_url.strip():
         st.error("Please provide a valid URL.")
     else:
         st.session_state.target_url = target_url
         st.session_state.status = "SCANNING"
+        st.session_state.scan_type = "quick" if quick_btn else "deep" 
         st.rerun()
 
 if st.session_state.status == "SCANNING":
     url = st.session_state.target_url
-    if not url.startswith("http"):
-        url = "https://" + url
+    if not url.startswith("http"): url = "https://" + url
     
     with st.status("🔍 Analyzing target architecture...", expanded=True) as status:
         scanner = WebSecurityScanner(url, max_depth=3)
-        try:
-            f = io.StringIO()
-            with redirect_stdout(f):
-                if quick_btn:
-                    vulns = scanner.quickscan()
-                else:
-                    vulns = scanner.deepscan()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            vulns = scanner.quickscan() if st.session_state.scan_type == "quick" else scanner.deepscan()
             
-            st.session_state.vulns = vulns
-            st.session_state.urls_cnt = len(scanner.visited_urls)
-            st.session_state.scan_done = True
-            st.session_state.status = "IDLE"
-            status.update(label="Scan complete!", state="complete", expanded=False)
-            time.sleep(0.5)
-            st.rerun()
-        except Exception as e:
-            st.error(f"Scan interrupted: {str(e)}")
-            st.session_state.status = "IDLE"
-            st.rerun()
+        st.session_state.vulns = vulns
+        st.session_state.urls_cnt = len(scanner.visited_urls)
+        st.session_state.scan_done = True
+        st.session_state.status = "IDLE"
+        
+        # Save to SQLite DB
+        conn = sqlite3.connect("websec.db")
+        c = conn.cursor()
+        c.execute("INSERT INTO scans (user_id, target_url, scan_type, timestamp, vulns_json, endpoints_count) VALUES (?, ?, ?, ?, ?, ?)",
+                  (st.session_state.user_id, url, st.session_state.scan_type, datetime.now(), json.dumps(vulns), st.session_state.urls_cnt))
+        conn.commit()
+        conn.close()
+
+        status.update(label="Scan complete!", state="complete", expanded=False)
+        time.sleep(0.5)
+        st.rerun()
 
 # ── Dashboard & Results ───────────────────────────────────────────────────────
 vulns = st.session_state.vulns
@@ -285,22 +229,10 @@ info_cnt = sum(1 for v in vulns if "Sensitive" in v.get("type", ""))
 
 st.markdown(f"""
 <div class="metrics-row">
-    <div class="m-card">
-        <div class="m-label">Endpoints</div>
-        <div class="m-val" style="color: var(--accent)">{st.session_state.urls_cnt}</div>
-    </div>
-    <div class="m-card">
-        <div class="m-label">Critical (SQLi)</div>
-        <div class="m-val" style="color: var(--red)">{sql_cnt}</div>
-    </div>
-    <div class="m-card">
-        <div class="m-label">High (XSS)</div>
-        <div class="m-val" style="color: var(--orange)">{xss_cnt}</div>
-    </div>
-    <div class="m-card">
-        <div class="m-label">Medium</div>
-        <div class="m-val">{info_cnt}</div>
-    </div>
+    <div class="m-card"><div class="m-label">Endpoints</div><div class="m-val">{st.session_state.urls_cnt}</div></div>
+    <div class="m-card"><div class="m-label">Critical (SQLi)</div><div class="m-val" style="color:var(--red)">{sql_cnt}</div></div>
+    <div class="m-card"><div class="m-label">High (XSS)</div><div class="m-val" style="color:var(--orange)">{xss_cnt}</div></div>
+    <div class="m-card"><div class="m-label">Medium</div><div class="m-val" style="color:var(--yellow)">{info_cnt}</div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -313,26 +245,11 @@ elif not vulns:
 else:
     for i, v in enumerate(vulns):
         v_type = v.get("type", "Unknown Issue")
-        v_url = v.get("url", "Unknown Source")
         is_crit = "SQL" in v_type
         tag_html = f"<span class='f-tag {'tag-crit' if is_crit else 'tag-high'}'>{'CRITICAL' if is_crit else 'HIGH'}</span>"
         
-        with st.expander(f"{v_type} — {v_url[:60]}..."):
+        with st.expander(f"{v_type} — {v.get('url', '')[:60]}..."):
             st.markdown(tag_html, unsafe_allow_html=True)
-            st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
             for key, val in v.items():
                 if key == "type": continue
-                is_payload = key in ["payload", "pattern", "parameter"]
-                st.markdown(f"""
-                <div class="detail-row">
-                    <div class="detail-k">{key.upper()}</div>
-                    <div class="detail-v" style="color: {'var(--orange)' if is_payload else 'inherit'}">{val}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-# ── Footer ────────────────────────────────────────────────────────────────────
-st.markdown(f"""
-<div style="margin-top: 4rem; padding: 2rem; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-family: DM Mono; font-size: 0.65rem;">
-    ⚠️ AUTHORIZED USE ONLY &nbsp; • &nbsp; COMPLIANCE REQUIRED &nbsp; • &nbsp; WEBSEC ENGINE V2.5
-</div>
-""", unsafe_allow_html=True)
+                st.markdown(f"**{key.upper()}**: `{val}`")
