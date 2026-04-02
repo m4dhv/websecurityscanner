@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSec Scanner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#07090f', darkSurface: '#0d111c', darkBorder: '#1e2540',
+                        lightBg: '#f8faff', lightSurface: '#ffffff', lightBorder: '#e2e8f5'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { transition: background-color 0.3s, color 0.3s; }
+        .hidden { display: none !important; }
+        .loader { border: 4px solid rgba(34, 197, 94, 0.3); border-top-color: #22c55e; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-darkBg text-gray-100 font-sans min-h-screen transition-colors">
+
+    <div class="max-w-5xl mx-auto px-6 py-8">
+        <nav class="flex justify-between items-center mb-12">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center shadow-[0_4px_15px_rgba(34,197,94,0.2)]">
+                    <span class="text-white font-bold text-xl">🛡️</span>
+                </div>
+                <div class="font-extrabold text-2xl tracking-tight">
+                    Web<span class="text-green-600">Sec</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="toggleTheme()" class="p-2 rounded-full border border-gray-600 hover:border-green-500 transition-all text-xl">🌓</button>
+                <button onclick="toggleView()" id="viewToggleBtn" class="flex items-center gap-2 px-4 py-2 rounded-full font-bold text-sm tracking-wide transition-all bg-[#151926] hover:bg-[#1e2540] border border-gray-700">
+                    ⚙️ Admin Panel
+                </button>
+            </div>
+        </nav>
+
+        <div id="scannerView">
+            
+            <div id="apiKeyGate" class="max-w-md mx-auto p-8 rounded-2xl border border-darkBorder bg-darkSurface shadow-2xl text-center mt-20">
+                <div class="text-green-500 text-4xl mb-4">🔑</div>
+                <h2 class="text-2xl font-bold mb-2">API Authentication</h2>
+                <p class="text-gray-500 mb-6 text-sm">Enter your provided API key to access the scanner.</p>
+                <div class="flex flex-col gap-4">
+                    <input type="text" id="apiKeyInput" placeholder="sk_dev_9948274619" class="w-full p-4 rounded-xl border border-gray-800 bg-[#151926] font-mono outline-none focus:border-green-500">
+                    <button onclick="saveApiKey()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl uppercase tracking-wider">Unlock Scanner</button>
+                </div>
+            </div>
+
+            <div id="scannerMain" class="hidden">
+                <div class="mb-8">
+                    <p class="text-green-500 font-mono text-xs font-bold tracking-widest mb-1">AUTOMATED SECURITY AUDIT</p>
+                    <h1 class="text-4xl font-extrabold text-gray-100" id="mainTitle">Website Security Scanner</h1>
+                </div>
+
+                <div class="flex flex-col md:flex-row gap-4 mb-10">
+                    <input type="text" id="targetUrl" placeholder="https://target-website.com" class="flex-1 p-4 rounded-xl border border-darkBorder bg-darkSurface font-mono outline-none focus:border-green-500 text-gray-100">
+                    <button onclick="startScan('quick')" id="btnQuick" class="bg-green-600 hover:bg-green-700 text-white font-bold px-8 py-4 rounded-xl uppercase tracking-wider">⚡ Quick</button>
+                    <button onclick="startScan('deep')" id="btnDeep" class="border border-gray-700 hover:bg-gray-800 text-gray-300 font-bold px-8 py-4 rounded-xl uppercase tracking-wider">🕷️ Deep</button>
+                </div>
+
+                <div id="errorMsg" class="hidden bg-red-500/10 border border-red-500 text-red-500 p-4 rounded-xl mb-8 font-mono text-sm"></div>
+
+                <div id="loadingStatus" class="hidden p-12 rounded-2xl border border-darkBorder bg-darkSurface text-center flex flex-col items-center justify-center mb-8">
+                    <div class="loader mb-6"></div>
+                    <h3 class="text-xl font-bold text-gray-100">Analyzing target architecture...</h3>
+                    <p class="text-gray-500 font-mono mt-2">Crawling endpoints and injecting payloads</p>
+                </div>
+
+                <div id="resultsDashboard" class="hidden">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                        <div class="p-6 rounded-2xl border border-darkBorder bg-darkSurface"><div class="text-gray-500 text-xs font-mono uppercase tracking-widest mb-2">Endpoints</div><div id="resEndpoints" class="text-4xl font-extrabold text-gray-100">0</div></div>
+                        <div class="p-6 rounded-2xl border border-darkBorder bg-darkSurface"><div class="text-gray-500 text-xs font-mono uppercase tracking-widest mb-2">Critical (SQLi)</div><div id="resSqli" class="text-4xl font-extrabold text-red-500">0</div></div>
+                        <div class="p-6 rounded-2xl border border-darkBorder bg-darkSurface"><div class="text-gray-500 text-xs font-mono uppercase tracking-widest mb-2">High (XSS)</div><div id="resXss" class="text-4xl font-extrabold text-orange-500">0</div></div>
+                        <div class="p-6 rounded-2xl border border-darkBorder bg-darkSurface"><div class="text-gray-500 text-xs font-mono uppercase tracking-widest mb-2">Med (Info)</div><div id="resInfo" class="text-4xl font-extrabold text-yellow-500">0</div></div>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-4 text-gray-100">⚠️ Security Findings</h3>
+                    <div id="vulnsList" class="space-y-3"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="adminView" class="hidden">
+            <div id="adminLoginGate" class="max-w-md mx-auto p-8 rounded-2xl border border-darkBorder bg-darkSurface shadow-2xl mt-20 text-center">
+                <div class="text-red-500 text-4xl mb-4">🔒</div>
+                <h2 class="text-2xl font-bold mb-6 text-gray-100">Admin Gateway</h2>
+                <div id="adminError" class="hidden text-red-500 text-sm mb-4 font-mono bg-red-500/10 p-2 rounded"></div>
+                <div class="flex flex-col gap-4">
+                    <input type="text" id="adminUser" placeholder="Admin Username" class="w-full p-4 rounded-xl border border-gray-800 bg-[#151926] font-mono outline-none text-gray-100">
+                    <input type="password" id="adminPass" placeholder="Password" class="w-full p-4 rounded-xl border border-gray-800 bg-[#151926] font-mono outline-none text-gray-100">
+                    <button onclick="adminLogin()" id="btnAdminLogin" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl uppercase tracking-wider mt-2">Access Console</button>
+                </div>
+            </div>
+
+            <div id="adminDashboard" class="hidden">
+                <div class="flex justify-between items-end mb-8">
+                    <div>
+                        <h2 class="text-3xl font-bold text-gray-100">📊 Global Scan Telemetry</h2>
+                        <p class="text-gray-500 mt-2 font-mono text-sm">Real-time aggregate logs (PII scrubbed)</p>
+                    </div>
+                    <button onclick="adminLogout()" class="text-sm font-bold text-red-500 hover:text-red-400 uppercase tracking-wider">Terminate Session</button>
+                </div>
+                <div class="rounded-xl border border-darkBorder bg-darkSurface overflow-hidden shadow-xl">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-[#151926] text-gray-400 text-xs uppercase font-mono tracking-widest">
+                            <tr><th class="px-6 py-4">ID</th><th class="px-6 py-4">Client IP</th><th class="px-6 py-4">Target Domain</th><th class="px-6 py-4">Timestamp</th><th class="px-6 py-4">Issues Found</th></tr>
+                        </thead>
+                        <tbody id="adminTableBody" class="divide-y divide-gray-800 text-gray-300"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-16 pt-8 border-t border-gray-800 text-center text-gray-500 font-mono text-xs">
+            ⚠️ AUTHORIZED USE ONLY &nbsp; • &nbsp; COMPLIANCE REQUIRED &nbsp; • &nbsp; WEBSEC ENGINE V2.5
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let currentView = 'scanner'; // 'scanner' or 'admin'
+        
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            if(localStorage.getItem('websec_api_key')) {
+                document.getElementById('apiKeyGate').classList.add('hidden');
+                document.getElementById('scannerMain').classList.remove('hidden');
+            }
+            if(sessionStorage.getItem('websec_admin_jwt')) {
+                document.getElementById('adminLoginGate').classList.add('hidden');
+                document.getElementById('adminDashboard').classList.remove('hidden');
+                fetchScans();
+            }
+        });
+
+        // --- UI Toggles ---
+        function toggleTheme() {
+            const html = document.documentElement;
+            html.classList.toggle('dark');
+            if(html.classList.contains('dark')) {
+                document.body.classList.replace('bg-lightBg', 'bg-darkBg');
+                document.body.classList.replace('text-gray-900', 'text-gray-100');
+            } else {
+                document.body.classList.replace('bg-darkBg', 'bg-lightBg');
+                document.body.classList.replace('text-gray-100', 'text-gray-900');
+            }
+        }
+
+        function toggleView() {
+            currentView = currentView === 'scanner' ? 'admin' : 'scanner';
+            document.getElementById('scannerView').classList.toggle('hidden', currentView !== 'scanner');
+            document.getElementById('adminView').classList.toggle('hidden', currentView !== 'admin');
+            document.getElementById('viewToggleBtn').innerHTML = currentView === 'scanner' ? '⚙️ Admin Panel' : '🏠 Scanner';
+            if (currentView === 'admin' && sessionStorage.getItem('websec_admin_jwt')) fetchScans();
+        }
+
+        // --- Customer Scanner Logic ---
+        function saveApiKey() {
+            const key = document.getElementById('apiKeyInput').value.trim();
+            if(key.length > 5) {
+                localStorage.setItem('websec_api_key', key);
+                document.getElementById('apiKeyGate').classList.add('hidden');
+                document.getElementById('scannerMain').classList.remove('hidden');
+            }
+        }
+
+        async function startScan(type) {
+            const targetUrl = document.getElementById('targetUrl').value;
+            const errorDiv = document.getElementById('errorMsg');
+            
+            if (!targetUrl.startsWith('http')) {
+                errorDiv.innerText = "URL must start with http:// or https://";
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            errorDiv.classList.add('hidden');
+            document.getElementById('resultsDashboard').classList.add('hidden');
+            document.getElementById('loadingStatus').classList.remove('hidden');
+            document.getElementById('targetUrl').disabled = true;
+
+            try {
+                const res = await fetch(`${API_BASE}/scans`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-API-Key': localStorage.getItem('websec_api_key')
+                    },
+                    body: JSON.stringify({ target_url: targetUrl, scan_type: type })
+                });
+
+                if (!res.ok) throw new Error(res.status === 401 ? "Invalid API Key" : "Scan failed");
+                const data = await res.json();
+                
+                // Populate Metrics
+                document.getElementById('resEndpoints').innerText = data.metrics.endpoints_scanned;
+                document.getElementById('resSqli').innerText = data.metrics.sqli_count;
+                document.getElementById('resXss').innerText = data.metrics.xss_count;
+                document.getElementById('resInfo').innerText = data.metrics.info_count;
+
+                // Populate Vulns
+                const vulnsList = document.getElementById('vulnsList');
+                vulnsList.innerHTML = '';
+                
+                if(data.vulnerabilities.length === 0) {
+                    vulnsList.innerHTML = `<div class="p-6 rounded-xl border border-darkBorder bg-darkSurface text-green-500 font-bold">✅ Target surface appears clean. No vulnerabilities detected.</div>`;
+                } else {
+                    data.vulnerabilities.forEach(v => {
+                        let badgeColor = v.type.includes('SQL') ? 'bg-red-500/20 text-red-500' : v.type.includes('XSS') ? 'bg-orange-500/20 text-orange-500' : 'bg-yellow-500/20 text-yellow-500';
+                        let severity = v.type.includes('SQL') ? 'CRITICAL' : v.type.includes('XSS') ? 'HIGH' : 'MEDIUM';
+                        
+                        vulnsList.innerHTML += `
+                            <div class="p-4 rounded-xl border border-darkBorder bg-darkSurface">
+                                <div class="flex items-center gap-3 mb-2">
+                                    <span class="px-2 py-1 rounded text-xs font-bold font-mono ${badgeColor}">${severity}</span>
+                                    <span class="font-bold text-sm text-gray-200">${v.type}</span>
+                                </div>
+                                <div class="text-sm font-mono mt-2 text-gray-400 break-all">
+                                    <span class="text-gray-600">URL:</span> ${v.url}<br>
+                                    ${v.parameter ? `<span class="text-gray-600">PARAM:</span> ${v.parameter}<br>` : ''}
+                                    ${v.payload ? `<span class="text-gray-600">PAYLOAD:</span> <span class="text-orange-400">${v.payload}</span>` : ''}
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+
+                document.getElementById('loadingStatus').classList.add('hidden');
+                document.getElementById('resultsDashboard').classList.remove('hidden');
+            } catch (err) {
+                document.getElementById('loadingStatus').classList.add('hidden');
+                errorDiv.innerText = err.message;
+                errorDiv.classList.remove('hidden');
+                if(err.message === "Invalid API Key") {
+                    localStorage.removeItem('websec_api_key');
+                    location.reload();
+                }
+            } finally {
+                document.getElementById('targetUrl').disabled = false;
+            }
+        }
+
+        // --- Admin Logic ---
+        async function adminLogin() {
+            const u = document.getElementById('adminUser').value;
+            const p = document.getElementById('adminPass').value;
+            const errDiv = document.getElementById('adminError');
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: u, password: p })
+                });
+                if (!res.ok) throw new Error("Invalid credentials");
+                const data = await res.json();
+                sessionStorage.setItem('websec_admin_jwt', data.access_token);
+                
+                document.getElementById('adminLoginGate').classList.add('hidden');
+                document.getElementById('adminDashboard').classList.remove('hidden');
+                fetchScans();
+            } catch (err) {
+                errDiv.innerText = err.message;
+                errDiv.classList.remove('hidden');
+            }
+        }
+
+        function adminLogout() {
+            sessionStorage.removeItem('websec_admin_jwt');
+            document.getElementById('adminDashboard').classList.add('hidden');
+            document.getElementById('adminLoginGate').classList.remove('hidden');
+            document.getElementById('adminUser').value = '';
+            document.getElementById('adminPass').value = '';
+        }
+
+        async function fetchScans() {
+            try {
+                const res = await fetch(`${API_BASE}/scans`, {
+                    headers: { 'Authorization': `Bearer ${sessionStorage.getItem('websec_admin_jwt')}` }
+                });
+                if (res.status === 401) return adminLogout();
+                
+                const data = await res.json();
+                const tbody = document.getElementById('adminTableBody');
+                tbody.innerHTML = '';
+                
+                data.forEach(s => {
+                    let badges = '';
+                    if(s.metrics.sqli_count > 0) badges += `<span class="px-2 py-1 mr-1 rounded bg-red-500/20 text-red-500 font-bold text-xs">SQLi: ${s.metrics.sqli_count}</span>`;
+                    if(s.metrics.xss_count > 0) badges += `<span class="px-2 py-1 mr-1 rounded bg-orange-500/20 text-orange-500 font-bold text-xs">XSS: ${s.metrics.xss_count}</span>`;
+                    if(s.metrics.total_vulns === 0) badges = `<span class="px-2 py-1 rounded bg-green-500/20 text-green-500 font-bold text-xs">CLEAN</span>`;
+
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-[#151926] transition-colors">
+                            <td class="px-6 py-4 font-mono text-gray-500">#${s.id}</td>
+                            <td class="px-6 py-4 font-mono">${s.client_ip}</td>
+                            <td class="px-6 py-4 font-bold text-green-500">${s.target}</td>
+                            <td class="px-6 py-4 font-mono text-gray-500">${new Date(s.timestamp).toLocaleString()}</td>
+                            <td class="px-6 py-4 flex">${badges}</td>
+                        </tr>
+                    `;
+                });
+            } catch (err) {
+                console.error("Failed to fetch logs", err);
+            }
+        }
+    </script>
+</body>
+</html>

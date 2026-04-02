@@ -17,18 +17,22 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+
 # ── Database Initialization ───────────────────────────────────────────────────
 def init_db():
     conn = sqlite3.connect("websec.db")
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (
+    c.execute(
+        """CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     email TEXT UNIQUE,
                     username TEXT UNIQUE,
                     password_hash TEXT,
                     role TEXT
-                )''')
-    c.execute('''CREATE TABLE IF NOT EXISTS scans (
+                )"""
+    )
+    c.execute(
+        """CREATE TABLE IF NOT EXISTS scans (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER,
                     target_url TEXT,
@@ -41,27 +45,41 @@ def init_db():
                     info_count INTEGER,
                     total_vulns INTEGER,
                     FOREIGN KEY(user_id) REFERENCES users(id)
-                )''')
+                )"""
+    )
     # Create default admin if not exists
     c.execute("SELECT id FROM users WHERE username='admin'")
     if not c.fetchone():
         admin_hash = hashlib.sha256(b"admin").hexdigest()
-        c.execute("INSERT INTO users (email, username, password_hash, role) VALUES (?, ?, ?, ?)",
-                  ("admin@websec.local", "admin", admin_hash, "admin"))
+        c.execute(
+            "INSERT INTO users (email, username, password_hash, role) VALUES (?, ?, ?, ?)",
+            ("admin@websec.local", "admin", admin_hash, "admin"),
+        )
     conn.commit()
     conn.close()
 
+
 init_db()
+
 
 def hash_pass(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
+
 # ── Session State Logic ────────────────────────────────────────────────────────
 defaults = {
-    "theme": "dark", "status": "IDLE", "vulns": [], "urls_cnt": 0,
-    "scan_done": False, "target_url": "", "scan_type": None,
-    "logged_in": False, "auth_mode": "login", "user_id": None,
-    "role": "user", "view": "scanner"
+    "theme": "dark",
+    "status": "IDLE",
+    "vulns": [],
+    "urls_cnt": 0,
+    "scan_done": False,
+    "target_url": "",
+    "scan_type": None,
+    "logged_in": False,
+    "auth_mode": "login",
+    "user_id": None,
+    "role": "user",
+    "view": "scanner",
 }
 
 for key, val in defaults.items():
@@ -71,7 +89,8 @@ for key, val in defaults.items():
 is_dark = st.session_state.theme == "dark"
 
 # ── Enhanced CSS with Theme Variables ──────────────────────────────────────────
-st.markdown("""
+st.markdown(
+    """
 <style>
 h1 a {
     visibility: hidden;
@@ -80,8 +99,11 @@ h2 a {
     visibility: hidden;
 }
 </style>
-""", unsafe_allow_html=True)
-st.markdown(f"""
+""",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
 
@@ -171,7 +193,9 @@ div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="column"]:nth
 /* Hide heading anchor links */
 [data-testid="stHeadingWithActionElements"] a {{ display: none !important; }}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # Determine Top Nav Status Display
 if not st.session_state.logged_in:
@@ -179,10 +203,11 @@ if not st.session_state.logged_in:
     dot_class = "dot-lock"
 else:
     status_display = st.session_state.status
-    dot_class = 'dot-scan' if st.session_state.status == 'SCANNING' else 'dot-idle'
+    dot_class = "dot-scan" if st.session_state.status == "SCANNING" else "dot-idle"
 
 # ── Top Bar ──────────────────────────────────────────────────────────────────
-st.markdown(f"""
+st.markdown(
+    f"""
 <div class="top-nav">
     <div class="logo-area">
         <div class="logo-box">🛡️</div>
@@ -192,19 +217,27 @@ st.markdown(f"""
         <div class="status-pill"><div class="dot {dot_class}"></div>{status_display}</div>
     </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ── Main Header ────────────────────────────────────────────────────────────────
 col_hl, col_out, col_tog = st.columns([0.7, 0.15, 0.15])
 with col_hl:
-    st.markdown(f"<p style='color: var(--accent); font-family: DM Mono; font-size: 0.7rem; font-weight: 600;'>AUTOMATED SECURITY AUDIT</p>", unsafe_allow_html=True)
-    st.markdown("<h1 style='margin-top: -10px; font-weight: 800;'>Website Security Scanner</h1>", unsafe_allow_html=True)
+    st.markdown(
+        f"<p style='color: var(--accent); font-family: DM Mono; font-size: 0.7rem; font-weight: 600;'>AUTOMATED SECURITY AUDIT</p>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<h1 style='margin-top: -10px; font-weight: 800;'>Website Security Scanner</h1>",
+        unsafe_allow_html=True,
+    )
 
 with col_out:
     if st.session_state.logged_in:
         st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
         if st.button("Logout", type="secondary", width="stretch"):
-            for k in ["logged_in", "user_id", "role"]: 
+            for k in ["logged_in", "user_id", "role"]:
                 st.session_state[k] = defaults[k]
             st.session_state.status = "IDLE"
             st.session_state.view = "scanner"
@@ -220,27 +253,41 @@ with col_tog:
 if not st.session_state.logged_in:
     st.markdown("<br><br>", unsafe_allow_html=True)
     _, col_auth, _ = st.columns([1, 1.2, 1])
-    
+
     with col_auth:
         if st.session_state.auth_mode == "login":
             with st.form("login_form", clear_on_submit=False):
-                st.markdown("<h2 style='text-align: center;'>Log In</h2>", unsafe_allow_html=True)
-                st.markdown("<p style='text-align: center; color: var(--muted); margin-bottom: 30px;'>Enter your credentials to continue</p>", unsafe_allow_html=True)
-                
-                user_input = st.text_input("Username or Email", placeholder="Username or Email", key="l_usr")
-                pass_input = st.text_input("Password", placeholder="Password", type="password", key="l_pwd")
-                
+                st.markdown(
+                    "<h2 style='text-align: center;'>Log In</h2>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    "<p style='text-align: center; color: var(--muted); margin-bottom: 30px;'>Enter your credentials to continue</p>",
+                    unsafe_allow_html=True,
+                )
+
+                user_input = st.text_input(
+                    "Username or Email", placeholder="Username or Email", key="l_usr"
+                )
+                pass_input = st.text_input(
+                    "Password", placeholder="Password", type="password", key="l_pwd"
+                )
+
                 st.markdown("<br>", unsafe_allow_html=True)
-                submitted = st.form_submit_button("Login", type="primary", width="stretch")
-                
+                submitted = st.form_submit_button(
+                    "Login", type="primary", width="stretch"
+                )
+
                 if submitted:
                     conn = sqlite3.connect("websec.db")
                     c = conn.cursor()
-                    c.execute("SELECT id, role FROM users WHERE (email=? OR username=?) AND password_hash=?", 
-                              (user_input, user_input, hash_pass(pass_input)))
+                    c.execute(
+                        "SELECT id, role FROM users WHERE (email=? OR username=?) AND password_hash=?",
+                        (user_input, user_input, hash_pass(pass_input)),
+                    )
                     user = c.fetchone()
                     conn.close()
-                    
+
                     if user:
                         st.session_state.logged_in = True
                         st.session_state.user_id = user[0]
@@ -248,25 +295,44 @@ if not st.session_state.logged_in:
                         st.rerun()
                     else:
                         st.error("Invalid credentials.")
-            
+
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("sign up", type="secondary", width="stretch"):
                 st.session_state.auth_mode = "register"
                 st.rerun()
-                
+
         else:
             with st.form("register_form", clear_on_submit=False):
-                st.markdown("<h2 style='text-align: center;'>Create New Account</h2>", unsafe_allow_html=True)
-                st.markdown("<p style='text-align: center; color: var(--muted); margin-bottom: 30px;'>Sign up with a new account to access the application.</p>", unsafe_allow_html=True)
-                
-                new_email = st.text_input("Email", placeholder="Email Address", key="r_email")
-                new_user = st.text_input("Username", placeholder="New Username", key="r_usr")
-                new_pass = st.text_input("Password", placeholder="New Password", type="password", key="r_pwd")
-                conf_pass = st.text_input("Confirm", placeholder="Confirm Password", type="password", key="r_conf")
-                
+                st.markdown(
+                    "<h2 style='text-align: center;'>Create New Account</h2>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    "<p style='text-align: center; color: var(--muted); margin-bottom: 30px;'>Sign up with a new account to access the application.</p>",
+                    unsafe_allow_html=True,
+                )
+
+                new_email = st.text_input(
+                    "Email", placeholder="Email Address", key="r_email"
+                )
+                new_user = st.text_input(
+                    "Username", placeholder="New Username", key="r_usr"
+                )
+                new_pass = st.text_input(
+                    "Password", placeholder="New Password", type="password", key="r_pwd"
+                )
+                conf_pass = st.text_input(
+                    "Confirm",
+                    placeholder="Confirm Password",
+                    type="password",
+                    key="r_conf",
+                )
+
                 st.markdown("<br>", unsafe_allow_html=True)
-                submitted = st.form_submit_button("Sign Up", type="primary", width="stretch")
-                
+                submitted = st.form_submit_button(
+                    "Sign Up", type="primary", width="stretch"
+                )
+
                 if submitted:
                     if new_pass != conf_pass:
                         st.error("Passphrases do not match.")
@@ -276,36 +342,51 @@ if not st.session_state.logged_in:
                         try:
                             conn = sqlite3.connect("websec.db")
                             c = conn.cursor()
-                            c.execute("INSERT INTO users (email, username, password_hash, role) VALUES (?, ?, ?, ?)", 
-                                      (new_email, new_user, hash_pass(new_pass), "user"))
+                            c.execute(
+                                "INSERT INTO users (email, username, password_hash, role) VALUES (?, ?, ?, ?)",
+                                (new_email, new_user, hash_pass(new_pass), "user"),
+                            )
                             conn.commit()
                             st.success("ID registered. Please use it for login.")
                             time.sleep(1.5)
                             st.session_state.auth_mode = "login"
                             st.rerun()
                         except sqlite3.IntegrityError:
-                            st.error("Email or Username already exists in the database.")
+                            st.error(
+                                "Email or Username already exists in the database."
+                            )
                         finally:
                             conn.close()
-            
+
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Have an ID ? Go back to Login", type="secondary", width="stretch"):
+            if st.button(
+                "Have an ID ? Go back to Login", type="secondary", width="stretch"
+            ):
                 st.session_state.auth_mode = "login"
                 st.rerun()
 
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <div style="margin-top: 4rem; padding: 2rem; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-family: DM Mono; font-size: 0.65rem;">
         ⚠️ AUTHORIZED USE ONLY &nbsp; • &nbsp; COMPLIANCE REQUIRED &nbsp; • &nbsp; WEBSEC ENGINE V2.5
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 # ── Admin Panel Toggle ────────────────────────────────────────────────────────
 if st.session_state.role == "admin":
-    view_label = "Return to Scanner" if st.session_state.view == "admin" else "⚙️ Access Admin Panel"
+    view_label = (
+        "Return to Scanner"
+        if st.session_state.view == "admin"
+        else "⚙️ Access Admin Panel"
+    )
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button(view_label, type="secondary", width="stretch"):
-        st.session_state.view = "admin" if st.session_state.view == "scanner" else "scanner"
+        st.session_state.view = (
+            "admin" if st.session_state.view == "scanner" else "scanner"
+        )
         st.rerun()
 
 # ── Admin View ────────────────────────────────────────────────────────────────
@@ -313,45 +394,75 @@ if st.session_state.view == "admin":
     st.subheader("Global Scan Logs")
     conn = sqlite3.connect("websec.db")
     c = conn.cursor()
-    
-    c.execute("""SELECT s.id, u.username, s.target_url, s.scan_type, s.timestamp, s.endpoints_count, 
+
+    c.execute(
+        """SELECT s.id, u.username, s.target_url, s.scan_type, s.timestamp, s.endpoints_count, 
                         s.total_vulns, s.sqli_count, s.xss_count, s.info_count
-                 FROM scans s JOIN users u ON s.user_id = u.id ORDER BY s.timestamp DESC""")
+                 FROM scans s JOIN users u ON s.user_id = u.id ORDER BY s.timestamp DESC"""
+    )
     scan_rows = c.fetchall()
-    
+
     if scan_rows:
-        scan_data = [{"Log ID": r[0], "User": r[1], "Target": r[2], "Mode": r[3], "Time": r[4], 
-                 "Endpoints": r[5], "Total Issues": r[6], "SQLi (Critical)": r[7], "XSS (High)": r[8], "Info (Medium)": r[9]} for r in scan_rows]
-        st.dataframe(scan_data, use_container_width=True)
+        scan_data = [
+            {
+                "Log ID": r[0],
+                "User": r[1],
+                "Target": r[2],
+                "Mode": r[3],
+                "Time": r[4],
+                "Endpoints": r[5],
+                "Total Issues": r[6],
+                "SQLi (Critical)": r[7],
+                "XSS (High)": r[8],
+                "Info (Medium)": r[9],
+            }
+            for r in scan_rows
+        ]
+        st.dataframe(scan_data, width="stretch")
     else:
         st.info("No scans have been performed yet.")
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    
+
     st.subheader("Registered Users Directory")
     c.execute("SELECT id, username, email, role FROM users ORDER BY id ASC")
     user_rows = c.fetchall()
-    
+
     if user_rows:
-        user_data = [{"User ID": r[0], "Username": r[1], "Email": r[2], "System Role": r[3].capitalize()} for r in user_rows]
-        st.dataframe(user_data, use_container_width=True)
+        user_data = [
+            {
+                "User ID": r[0],
+                "Username": r[1],
+                "Email": r[2],
+                "System Role": r[3].capitalize(),
+            }
+            for r in user_rows
+        ]
+        st.dataframe(user_data, width="stretch")
     else:
         st.info("No users found.")
 
     conn.close()
-        
-    st.markdown(f"""
+
+    st.markdown(
+        f"""
     <div style="margin-top: 4rem; padding: 2rem; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-family: DM Mono; font-size: 0.65rem;">
         ⚠️ AUTHORIZED USE ONLY &nbsp; • &nbsp; COMPLIANCE REQUIRED &nbsp; • &nbsp; WEBSEC ENGINE V2.5
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 
 # ── Main UI (Scanner) ─────────────────────────────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
 
-target_url = st.text_input("Target URL", value=st.session_state.target_url, placeholder="enter URL of target website here")
+target_url = st.text_input(
+    "Target URL",
+    value=st.session_state.target_url,
+    placeholder="enter URL of target website here",
+)
 
 # Create three columns to act as a wrapper for centering
 _, col_btn_center, _ = st.columns([1, 2, 1])
@@ -363,17 +474,17 @@ with col_btn_center:
         quick_btn = st.button("⚡ Quick Scan", type="primary", width="stretch")
     with sub_col2:
         deep_btn = st.button("🕷 Deep Scan", type="primary", width="stretch")
-        
+
 # ── Scan Execution (Update this section) ──────────────────────────────────────
 if quick_btn or deep_btn:
     # 1. Strip whitespace
     clean_url = target_url.strip()
-    
+
     # 2. Validate URL: must be localhost (with optional port/path) OR a proper domain with a dot.
     # Anchored correctly so bare strings like "sdsds" never match.
     url_pattern = re.compile(
         r"^(https?://)?(localhost|([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,})(:\d{1,5})?(/[^\s]*)?$",
-        re.IGNORECASE
+        re.IGNORECASE,
     )
 
     if not clean_url:
@@ -383,14 +494,14 @@ if quick_btn or deep_btn:
     else:
         st.session_state.target_url = clean_url
         st.session_state.status = "SCANNING"
-        st.session_state.scan_type = "quick" if quick_btn else "deep" 
+        st.session_state.scan_type = "quick" if quick_btn else "deep"
         st.rerun()
 
 if st.session_state.status == "SCANNING":
     url = st.session_state.target_url
     if not url.startswith("http"):
         url = "http://" + url  # Default to http for localhost compatibility
-    
+
     with st.status("🔍 Analyzing target architecture...", expanded=True) as status:
         scanner = WebSecurityScanner(url, max_depth=3)
         try:
@@ -401,30 +512,44 @@ if st.session_state.status == "SCANNING":
                     vulns = scanner.quickscan()
                 else:
                     vulns = scanner.deepscan()
-            
+
             # Check if there were any errors printed to stdout
             scan_output = f.getvalue()
             if "Error" in scan_output:
                 st.warning("Scan completed with network errors (see below).")
-                st.code(scan_output) # Shows the exact "No scheme supplied" or connection errors
+                st.code(
+                    scan_output
+                )  # Shows the exact "No scheme supplied" or connection errors
 
             st.session_state.vulns = vulns
             st.session_state.urls_cnt = len(scanner.visited_urls)
             st.session_state.scan_done = True
             st.session_state.status = "IDLE"
-            
+
             # Save results to Database
             sql_cnt = sum(1 for v in vulns if "SQL" in v.get("type", ""))
             xss_cnt = sum(1 for v in vulns if "XSS" in v.get("type", ""))
             info_cnt = sum(1 for v in vulns if "Sensitive" in v.get("type", ""))
-            
+
             conn = sqlite3.connect("websec.db")
             c = conn.cursor()
-            c.execute("""INSERT INTO scans 
+            c.execute(
+                """INSERT INTO scans 
                          (user_id, target_url, scan_type, timestamp, vulns_json, endpoints_count, sqli_count, xss_count, info_count, total_vulns) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                      (st.session_state.user_id, url, st.session_state.scan_type, datetime.now(), 
-                       json.dumps(vulns), st.session_state.urls_cnt, sql_cnt, xss_cnt, info_cnt, len(vulns)))
+                (
+                    st.session_state.user_id,
+                    url,
+                    st.session_state.scan_type,
+                    datetime.now(),
+                    json.dumps(vulns),
+                    st.session_state.urls_cnt,
+                    sql_cnt,
+                    xss_cnt,
+                    info_cnt,
+                    len(vulns),
+                ),
+            )
             conn.commit()
             conn.close()
 
@@ -442,26 +567,31 @@ sql_cnt = sum(1 for v in vulns if "SQL" in v.get("type", ""))
 xss_cnt = sum(1 for v in vulns if "XSS" in v.get("type", ""))
 info_cnt = sum(1 for v in vulns if "Sensitive" in v.get("type", ""))
 
-st.markdown(f"""
+st.markdown(
+    f"""
 <div class="metrics-row">
     <div class="m-card"><div class="m-label">Endpoints</div><div class="m-val" style="color: var(--text)">{st.session_state.urls_cnt}</div></div>
     <div class="m-card"><div class="m-label">Critical (SQLi)</div><div class="m-val" style="color: var(--red)">{sql_cnt}</div></div>
     <div class="m-card"><div class="m-label">High (XSS)</div><div class="m-val" style="color: var(--orange)">{xss_cnt}</div></div>
     <div class="m-card"><div class="m-label">Medium (Info Leak)</div><div class="m-val" style="color: var(--yellow)">{info_cnt}</div></div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 st.subheader("Security Findings")
 
 if not st.session_state.scan_done:
-    st.info("No active scan results. Enter a target URL and choose a scan mode to begin.")
+    st.info(
+        "No active scan results. Enter a target URL and choose a scan mode to begin."
+    )
 elif not vulns:
     st.success("Target surface appears clean. No vulnerabilities detected.")
 else:
     for i, v in enumerate(vulns):
         v_type = v.get("type", "Unknown Issue")
         v_url = v.get("url", "Unknown Source")
-        
+
         # NEW: 3-Tier Logic for tags
         if "SQL" in v_type:
             sev_class, sev_text = "tag-crit", "CRITICAL"
@@ -469,24 +599,31 @@ else:
             sev_class, sev_text = "tag-high", "HIGH"
         else:
             sev_class, sev_text = "tag-med", "MEDIUM"
-            
+
         tag_html = f"<span class='f-tag {sev_class}'>{sev_text}</span>"
-        
+
         with st.expander(f"{v_type} — {v_url[:60]}..."):
             st.markdown(tag_html, unsafe_allow_html=True)
             st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
             for key, val in v.items():
-                if key == "type": continue
+                if key == "type":
+                    continue
                 is_payload = key in ["payload", "pattern", "parameter"]
-                st.markdown(f"""
+                st.markdown(
+                    f"""
                 <div class="detail-row">
                     <div class="detail-k">{key.upper()}</div>
                     <div class="detail-v" style="color: {'var(--orange)' if is_payload else 'inherit'}">{val}</div>
                 </div>
-                """, unsafe_allow_html=True)
+                """,
+                    unsafe_allow_html=True,
+                )
 
-st.markdown(f"""
+st.markdown(
+    f"""
 <div style="margin-top: 4rem; padding: 2rem; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-family: DM Mono; font-size: 0.65rem;">
     ⚠️ AUTHORIZED USE ONLY &nbsp; • &nbsp; COMPLIANCE REQUIRED &nbsp; • &nbsp; WEBSEC ENGINE V2.5
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
