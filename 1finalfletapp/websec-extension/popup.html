@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>WebSec Scanner</title>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #07090f;
+    --surface: #0d111c;
+    --surf2:   #151926;
+    --border:  #1e2540;
+    --text:    #e8ecf4;
+    --text2:   #9ba3be;
+    --muted:   #5a6480;
+    --accent:  #22C55E;
+    --red:     #ff4d6d;
+    --orange:  #ffa94d;
+    --yellow:  #ffd54d;
+    --green:   #22c55e;
+  }
+
+  body.light {
+    --bg:      #f8faff;
+    --surface: #ffffff;
+    --surf2:   #f1f4ff;
+    --border:  #e2e8f5;
+    --text:    #0f172a;
+    --text2:   #475569;
+    --muted:   #71717a;
+    --accent:  #0d7e0f;
+    --red:     #ff4d6d;
+    --orange:  #ea6c00;
+    --yellow:  #b38600;
+    --green:   #0d7e0f;
+  }
+
+  body {
+    width: 420px;
+    min-height: 560px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  /* ── Layout ───────────────────────────────────────────────────── */
+  .top-nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo-icon {
+    width: 30px; height: 30px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .logo-text {
+    font-size: 15px; font-weight: 800; letter-spacing: -0.3px;
+  }
+  .logo-text .sec { color: var(--accent); }
+
+  .nav-right {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surf2);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-family: monospace;
+    color: var(--text2);
+    white-space: nowrap;
+  }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+    flex-shrink: 0;
+  }
+  .status-dot.scanning { background: var(--accent); animation: pulse 1s infinite; }
+  .status-dot.done     { background: var(--green); }
+  .status-dot.error    { background: var(--red); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .scan-dots {
+    display: none; gap: 3px; align-items: center;
+  }
+  .scan-dots.active { display: flex; }
+  .scan-dots span {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--accent); opacity: 0.2;
+    transition: opacity 0.3s;
+  }
+
+  .theme-btn {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1px solid #333;
+    background: #000;
+    color: #fff;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+  body.light .theme-btn { background: #f0f0f0; border-color: #cbd5e1; color: #0f172a; }
+
+  /* ── Header ───────────────────────────────────────────────────── */
+  .header {
+    padding: 14px 18px 10px;
+  }
+  .header-sub {
+    font-size: 9px; font-family: monospace; letter-spacing: 1.5px;
+    color: var(--accent); font-weight: 600; text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .header-main {
+    font-size: 20px; font-weight: 800; color: var(--text);
+    letter-spacing: -0.5px;
+  }
+
+  /* ── Fields ───────────────────────────────────────────────────── */
+  .field-wrap {
+    padding: 0 18px 10px;
+  }
+
+  .input-row {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surf2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0 12px;
+    transition: border-color 0.15s;
+  }
+  .input-row:focus-within { border-color: var(--accent); }
+  .input-row.error { border-color: var(--red) !important; }
+  .input-row svg { color: var(--muted); flex-shrink: 0; }
+
+  input {
+    flex: 1;
+    background: transparent;
+    border: none; outline: none;
+    color: var(--text);
+    font-family: monospace;
+    font-size: 11px;
+    padding: 9px 0;
+    min-width: 0;
+  }
+  input::placeholder { color: var(--muted); }
+
+  .url-input-row {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0 14px;
+    transition: border-color 0.15s;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .url-input-row:focus-within { border-color: var(--accent); }
+  .url-input-row.error { border-color: var(--red) !important; }
+
+  .url-input-row input {
+    font-size: 12px;
+    padding: 11px 0;
+  }
+
+  /* ── Buttons ──────────────────────────────────────────────────── */
+  .btn-row {
+    display: flex; gap: 10px;
+    padding: 0 18px 10px;
+  }
+
+  .scan-btn {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    background: var(--accent);
+    border: none; border-radius: 22px;
+    color: #fff; font-weight: 700; font-size: 12px;
+    padding: 10px;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .scan-btn:hover { opacity: 0.88; }
+  .scan-btn:active { transform: scale(0.97); }
+  .scan-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+  .scan-btn svg { width: 14px; height: 14px; }
+
+  /* ── Progress ─────────────────────────────────────────────────── */
+  .progress-box {
+    display: none;
+    margin: 0 18px 8px;
+    background: rgba(34,197,94,0.06);
+    border: 1px solid rgba(34,197,94,0.18);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .progress-box.active { display: block; }
+
+  .progress-msg {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 8px;
+    color: var(--accent);
+    font-family: monospace; font-size: 11px;
+  }
+
+  .spinner {
+    width: 12px; height: 12px;
+    border: 2px solid rgba(34,197,94,0.3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  progress {
+    width: 100%; height: 3px;
+    appearance: none; border: none; border-radius: 2px;
+    background: rgba(34,197,94,0.15);
+  }
+  progress::-webkit-progress-bar { background: rgba(34,197,94,0.15); border-radius: 2px; }
+  progress::-webkit-progress-value { background: var(--accent); border-radius: 2px; }
+
+  /* ── Banner ───────────────────────────────────────────────────── */
+  .banner {
+    display: none;
+    margin: 0 18px 8px;
+    border-radius: 8px;
+    padding: 9px 13px;
+    font-family: monospace; font-size: 11px;
+  }
+  .banner.active { display: block; }
+
+  /* ── Divider ──────────────────────────────────────────────────── */
+  .divider { height: 1px; background: var(--border); margin: 2px 0; }
+
+  /* ── Metrics ──────────────────────────────────────────────────── */
+  .metrics-row {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    padding: 14px 18px;
+  }
+
+  .metric-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .metric-label {
+    font-size: 9px; font-family: monospace; font-weight: 600;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .metric-val {
+    font-size: 26px; font-weight: 800;
+    line-height: 1;
+  }
+  .metric-val.endpoints { color: var(--text); }
+  .metric-val.sqli      { color: var(--red); }
+  .metric-val.xss       { color: var(--orange); }
+  .metric-val.info      { color: var(--yellow); }
+
+  /* ── Findings ─────────────────────────────────────────────────── */
+  .findings-header {
+    padding: 0 18px 10px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .findings-title {
+    font-size: 14px; font-weight: 700; color: var(--text);
+  }
+
+  .findings-list {
+    padding: 0 18px;
+    max-height: 320px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .empty-state {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(155,163,190,0.05);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: var(--text2);
+    font-size: 11px;
+  }
+  .empty-state.clean {
+    background: rgba(34,197,94,0.06);
+    border-color: rgba(34,197,94,0.3);
+    color: var(--green);
+  }
+
+  /* ── Vuln tiles ───────────────────────────────────────────────── */
+  .vuln-tile {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 7px;
+    overflow: hidden;
+  }
+
+  .vuln-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px;
+    background: var(--surf2);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+  }
+  .vuln-header:hover { background: var(--border); }
+
+  .sev-badge {
+    font-size: 8px; font-family: monospace; font-weight: 700;
+    border-radius: 4px;
+    padding: 2px 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .vuln-type {
+    font-size: 11px; font-weight: 600; color: var(--text);
+    flex: 1; min-width: 0;
+  }
+
+  .vuln-url {
+    font-size: 9px; font-family: monospace; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 140px; flex-shrink: 0;
+  }
+
+  .chevron {
+    color: var(--muted); font-size: 10px; transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+  .vuln-tile.open .chevron { transform: rotate(90deg); }
+
+  .vuln-body {
+    display: none;
+    background: var(--surface);
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--border);
+  }
+  .vuln-tile.open .vuln-body { display: block; }
+
+  .detail-row {
+    display: flex; gap: 8px;
+    margin-bottom: 5px;
+    align-items: flex-start;
+  }
+  .detail-key {
+    font-size: 9px; font-family: monospace; font-weight: 600;
+    color: var(--muted); text-transform: uppercase;
+    width: 80px; flex-shrink: 0; padding-top: 1px;
+  }
+  .detail-val {
+    font-size: 10px; font-family: monospace;
+    color: var(--text2);
+    word-break: break-all;
+    flex: 1;
+  }
+  .detail-val.payload { color: var(--orange); }
+
+  /* ── Footer ───────────────────────────────────────────────────── */
+  .footer {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    margin-top: 12px;
+  }
+  .footer span {
+    font-size: 9px; font-family: monospace;
+    color: var(--muted);
+  }
+  .footer .sep { color: var(--border); }
+
+  /* ── Toast ────────────────────────────────────────────────────── */
+  .toast {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: #fff;
+    border-radius: 8px; padding: 8px 16px;
+    font-size: 11px; font-family: monospace;
+    display: flex; align-items: center; gap: 8px;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s;
+    white-space: nowrap;
+    z-index: 999;
+    max-width: 380px;
+  }
+  .toast.show { opacity: 1; }
+  .toast.err  { background: var(--red); }
+
+  /* ── Use current tab btn ──────────────────────────────────────── */
+  .use-tab-btn {
+    background: transparent; border: none; cursor: pointer;
+    color: var(--accent); font-size: 10px; font-family: monospace;
+    padding: 0; white-space: nowrap;
+    text-decoration: underline; text-underline-offset: 2px;
+  }
+  .use-tab-btn:hover { opacity: 0.75; }
+</style>
+</head>
+<body>
+
+<!-- ── Top Nav ─────────────────────────────────────── -->
+<div class="top-nav">
+  <div class="logo-icon">🛡️</div>
+  <div class="logo-text">Web<span class="sec">Sec</span></div>
+  <div class="nav-right">
+    <div class="status-pill" id="statusPill">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">IDLE</span>
+      <div class="scan-dots" id="scanDots">
+        <span id="d0"></span><span id="d1"></span><span id="d2"></span>
+      </div>
+    </div>
+    <button class="theme-btn" id="themeBtn" title="Toggle theme">🌙</button>
+  </div>
+</div>
+
+<!-- ── Header ─────────────────────────────────────── -->
+<div class="header">
+  <div class="header-sub">AUTOMATED SECURITY AUDIT</div>
+  <div class="header-main">Website Security Scanner</div>
+</div>
+
+<!-- ── API Key ─────────────────────────────────────── -->
+<div class="field-wrap">
+  <div class="input-row" id="apiKeyRow">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5l3 3L22 7l-3-3"/></svg>
+    <input type="password" id="apiKeyInput" placeholder="Paste your API key  (wsk_…)" spellcheck="false"/>
+    <button id="revealBtn" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:4px;" title="Reveal">👁</button>
+  </div>
+</div>
+
+<!-- ── URL ─────────────────────────────────────────── -->
+<div class="field-wrap">
+  <div class="url-input-row" id="urlRow">
+    <input type="text" id="urlInput" placeholder="Enter target URL…" spellcheck="false"/>
+    <button class="use-tab-btn" id="useTabBtn">use current tab</button>
+  </div>
+</div>
+
+<!-- ── Buttons ─────────────────────────────────────── -->
+<div class="btn-row">
+  <button class="scan-btn" id="quickBtn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+    Quick Scan
+  </button>
+  <button class="scan-btn" id="deepBtn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+    Deep Scan
+  </button>
+</div>
+
+<!-- ── Progress ────────────────────────────────────── -->
+<div class="progress-box" id="progressBox">
+  <div class="progress-msg">
+    <div class="spinner"></div>
+    <span id="progressMsg">🔍  Analyzing target architecture…</span>
+  </div>
+  <progress id="progressBar" value="0" max="1"></progress>
+</div>
+
+<!-- ── Banner ──────────────────────────────────────── -->
+<div class="banner" id="banner"></div>
+
+<!-- ── Divider ─────────────────────────────────────── -->
+<div class="divider"></div>
+
+<!-- ── Metrics ─────────────────────────────────────── -->
+<div class="metrics-row">
+  <div class="metric-card">
+    <div class="metric-label">Endpoints</div>
+    <div class="metric-val endpoints" id="mEndpoints">0</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Critical</div>
+    <div class="metric-val sqli" id="mSqli">0</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">High</div>
+    <div class="metric-val xss" id="mXss">0</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Medium</div>
+    <div class="metric-val info" id="mInfo">0</div>
+  </div>
+</div>
+
+<!-- ── Findings ────────────────────────────────────── -->
+<div class="findings-header">
+  <div class="findings-title">Security Findings</div>
+</div>
+<div class="findings-list" id="findingsList">
+  <div class="empty-state" id="emptyState">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    No active scan results. Enter a target URL and choose a scan mode to begin.
+  </div>
+</div>
+
+<!-- ── Footer ──────────────────────────────────────── -->
+<div class="footer">
+  <span>⚠️ AUTHORIZED USE ONLY</span>
+  <span class="sep">•</span>
+  <span>COMPLIANCE REQUIRED</span>
+  <span class="sep">•</span>
+  <span>WEBSEC ENGINE V2.5</span>
+</div>
+
+<!-- ── Toast ───────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<script src="popup.js"></script>
+</body>
+</html>

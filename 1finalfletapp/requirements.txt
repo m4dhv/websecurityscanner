@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+requests
+beautifulsoup4
+python-jose[cryptography]
+passlib[bcrypt]
+pydantic
+slowapi
+flet
+httpx
+streamlit
