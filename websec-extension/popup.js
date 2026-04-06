@@ -105,7 +105,7 @@ async function loadState() {
 // ── Theme ─────────────────────────────────────────────────────────────────────
 function applyTheme() {
   document.body.classList.toggle('light', !state.dark);
-  themeBtn.textContent = state.dark ? '🌙' : '☀️';
+  themeBtn.textContent = state.dark ? '☀️' : '🌙';
 }
 
 themeBtn.addEventListener('click', () => {
