@@ -275,11 +275,22 @@ async function apiStartScan(targetUrl, scanType, apiKey) {
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
     body: JSON.stringify({ target_url: targetUrl, scan_type: scanType }),
   });
+  
   if (!res.ok) {
     let detail = 'Unknown error';
-    try { detail = (await res.json()).detail || detail; } catch(_) {}
-    throw new Error(`API error: ${detail}`);
+    try { 
+      const data = await res.json();
+      detail = data.detail || detail; 
+      // Extract clean message if FastAPI returned a validation array
+      if (Array.isArray(detail) && detail.length > 0 && detail[0].msg) {
+        detail = detail[0].msg.replace("Value error, ", "");
+      }
+    } catch(_) {}
+    
+    // Throw just the clean detail so the banner formats it nicely
+    throw new Error(detail);
   }
+  
   return res.json();
 }
 

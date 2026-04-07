@@ -87,6 +87,32 @@ button[kind="secondary"], button[kind="secondaryFormSubmit"] {{ background: var(
 </style>
 """, unsafe_allow_html=True)
 
+
+# ── Table Styling ──────────────────────────────────────────────────────────────────
+st.markdown(f"""
+<style>
+
+[data-testid="stDataFrame"] {{
+    background-color: var(--surface) !important;
+}}
+
+[data-testid="stDataFrame"] div {{
+    color: var(--text) !important;
+}}
+
+[data-testid="stDataFrame"] thead tr th {{
+    background-color: var(--surface2) !important;
+    color: var(--text) !important;
+}}
+
+[data-testid="stDataFrame"] tbody tr td {{
+    background-color: var(--surface) !important;
+    color: var(--text) !important;
+}}
+
+</style>
+""", unsafe_allow_html=True)
+
 # ── Top Bar ──────────────────────────────────────────────────────────────────
 status_display = "ADMIN ACTIVE" if st.session_state.logged_in else "LOCKED"
 dot_class = "dot-admin" if st.session_state.logged_in else "dot-lock"

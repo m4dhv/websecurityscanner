@@ -1,0 +1,6 @@
+Default API Key : wsk_NAWtMhmt61PtpCz3K-TGadgYg-DSxXcZlLAQWqZCa8A
+
+Backend: uvicorn scanner:app --host 0.0.0.0 --port 8000
+
+Default admin credentials : Username : admin
+			    Password : changeme123!

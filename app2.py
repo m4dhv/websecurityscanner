@@ -1,5 +1,5 @@
 """
-app.py — WebSec Scanner · Customer Desktop App
+app.py — WebSec Scanner · Customer Desktop App (Flet 0.83.x)
 Run: python app.py
 
 Requires the FastAPI backend (scanner.py) on http://localhost:8000.
@@ -52,7 +52,7 @@ LIGHT = {
     "accent":  "#0d7e0f",
     "red":     "#ff4d6d",
     "orange":  "#ffa94d",
-    "yellow":  "#FFC100",
+    "yellow":  "#b38600",
     "green":   "#0d7e0f",
     "white":   "#ffffff",
 }
@@ -101,7 +101,7 @@ class ScanAnimation(ft.Row):
     def start(self) -> None:
         with self._lock:
             if self._running:
-                return
+                return          # already running — don't spawn a second thread
             self._running = True
         threading.Thread(target=self._pulse, daemon=True).start()
 
@@ -120,7 +120,7 @@ class ScanAnimation(ft.Row):
             try:
                 self.update()
             except Exception:
-                break
+                break           # page gone / control detached — exit cleanly
             time.sleep(0.32)
             step += 1
 
@@ -146,19 +146,14 @@ def main(page: ft.Page) -> None:
     page.padding           = 0
     page.theme_mode        = ft.ThemeMode.DARK
 
-    has_default_key = bool(DEFAULT_API_KEY and DEFAULT_API_KEY.strip())
-
     state: Dict[str, Any] = {
-        "dark":       True,
-        "api_key":    DEFAULT_API_KEY if has_default_key else "",
-        "scan_id":    None,
-        "status":     "IDLE",
-        "vulns":      [],
-        "endpoints":  0,
-        "sqli_count": 0,
-        "xss_count":  0,
-        "info_count": 0,
-        "scan_done":  False,
+        "dark":      True,
+        "api_key":   DEFAULT_API_KEY,
+        "scan_id":   None,
+        "status":    "IDLE",
+        "vulns":     [],
+        "endpoints": 0,
+        "scan_done": False,
     }
 
     def C() -> dict:
@@ -261,7 +256,7 @@ def main(page: ft.Page) -> None:
             border=ft.Border.all(1, C()["border"]),
             border_radius=12,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
-            margin=ft.Margin(bottom=8, left=0, right=0, top=0),
+            margin=ft.margin.only(bottom=8),
         )
 
     val_endpoints = ft.Text("0", size=34, weight=ft.FontWeight.W_800)
@@ -269,31 +264,25 @@ def main(page: ft.Page) -> None:
     val_xss       = ft.Text("0", size=34, weight=ft.FontWeight.W_800)
     val_info      = ft.Text("0", size=34, weight=ft.FontWeight.W_800)
 
-    # Initialize Metric Cards statically so they can be repainted later
-    metric_endpoints = _metric_card("Endpoints", val_endpoints)
-    metric_sqli      = _metric_card("Critical (SQLi)", val_sqli)
-    metric_xss       = _metric_card("High (XSS)", val_xss)
-    metric_info      = _metric_card("Medium (Info Leak)", val_info)
-    metric_cards     = [metric_endpoints, metric_sqli, metric_xss, metric_info]
-
     status_dot  = ft.Container(width=8, height=8, border_radius=4)
     status_text = ft.Text("IDLE", size=11, style=ft.TextStyle(font_family=MONO))
     scan_anim   = ScanAnimation(DARK["accent"])
     scan_anim.visible = False
 
     api_key_field = ft.TextField(
-        hint_text="enter API key (wsk_...)",
-        password=True,
-        can_reveal_password=True,
+        value=DEFAULT_API_KEY,
+        hint_text="Paste your API key  (wsk_…)",
         hint_style=ft.TextStyle(color=DARK["muted"]),
         text_style=ft.TextStyle(font_family=MONO),
         border_color=DARK["border"],
         focused_border_color=DARK["accent"],
-        bgcolor=DARK["surface"],
+        bgcolor=DARK["surf2"],
         color=DARK["text"],
-        text_size=13,
-        height=54,
-        content_padding=ft.Padding(left=18, right=18, top=0, bottom=0),
+        text_size=11,
+        password=True,
+        can_reveal_password=True,
+        height=42,
+        content_padding=ft.Padding(left=14, right=8, top=0, bottom=0),
         expand=True,
     )
 
@@ -318,15 +307,6 @@ def main(page: ft.Page) -> None:
         padding=ft.Padding(left=16, right=16, top=10, bottom=10),
         visible=False,
     )
-    
-    # Persistent completion notification UI
-    completion_notification = ft.Container(
-        content=ft.Row(alignment=ft.MainAxisAlignment.CENTER, spacing=10),
-        border_radius=22,
-        padding=ft.Padding(left=20, right=20, top=10, bottom=10),
-        margin=ft.Margin(left=60, right=60, top=0, bottom=14),
-        visible=False,
-    )
 
     findings_col = ft.Column(spacing=0)
 
@@ -336,9 +316,9 @@ def main(page: ft.Page) -> None:
         icon_size=18,
         tooltip="Toggle theme",
         style=ft.ButtonStyle(
-            bgcolor="#000000",
+            bgcolor={"": "#000000"},
             shape=ft.CircleBorder(),
-            padding=10,
+            padding=ft.Padding(left=10, right=10, top=10, bottom=10),
             side=ft.BorderSide(1, "#333333"),
         ),
     )
@@ -388,6 +368,8 @@ def main(page: ft.Page) -> None:
         visible=False,
     )
 
+    # ── Scan message cycling ───────────────────────────────────────────────────
+    # Use an Event so the cycle thread stops reliably even across thread boundaries
     _scan_stop_event = threading.Event()
 
     def _cycle_scan_messages() -> None:
@@ -396,7 +378,7 @@ def main(page: ft.Page) -> None:
             idx = (idx + 1) % len(_SCAN_MESSAGES)
             scan_msg_text.value = _SCAN_MESSAGES[idx]
             try:
-                page.update()
+                scan_msg_text.update()
             except Exception:
                 break
 
@@ -404,23 +386,17 @@ def main(page: ft.Page) -> None:
         T = C()
         page.bgcolor = T["bg"]
 
-        # Ensure "Endpoints" is visible on the light theme
-        val_endpoints.color = T["text"] 
+        # metric value colours — endpoints uses text colour, NOT white
+        val_endpoints.color = T["white"]
         val_sqli.color      = T["red"]
         val_xss.color       = T["orange"]
         val_info.color      = T["yellow"]
-
-        # Update nested backgrounds and labels for Metric Cards
-        for card in metric_cards:
-            card.bgcolor = T["surface"]
-            card.border  = ft.Border.all(1, T["border"])
-            card.content.controls[0].color = T["muted"]
 
         status_text.color = T["text2"]
         _repaint_status_dot()
 
         api_key_field.hint_style           = ft.TextStyle(color=T["muted"])
-        api_key_field.bgcolor              = T["surface"]
+        api_key_field.bgcolor              = T["surf2"]
         api_key_field.border_color         = T["border"]
         api_key_field.focused_border_color = T["accent"]
         api_key_field.color                = T["text"]
@@ -438,9 +414,9 @@ def main(page: ft.Page) -> None:
         toggle_btn.icon       = icon
         toggle_btn.icon_color = ic
         toggle_btn.style      = ft.ButtonStyle(
-            bgcolor=bg,
+            bgcolor={"": bg},
             shape=ft.CircleBorder(),
-            padding=10,
+            padding=ft.Padding(left=10, right=10, top=10, bottom=10),
             side=ft.BorderSide(1, bd),
         )
 
@@ -449,6 +425,7 @@ def main(page: ft.Page) -> None:
         header_sub.color     = T["accent"]
         header_main.color    = T["text"]
         findings_title.color = T["text"]
+        key_icon.color       = T["muted"]
 
         for ft_text in footer_texts:
             ft_text.color = T["border"] if ft_text.value == "•" else T["muted"]
@@ -462,8 +439,11 @@ def main(page: ft.Page) -> None:
         scan_progress.bgcolor = ft.Colors.with_opacity(0.06, T["accent"])
         scan_progress.border  = ft.Border.all(1, ft.Colors.with_opacity(0.18, T["accent"]))
 
+        # containers that need repainting
         status_pill.bgcolor           = T["surf2"]
         status_pill.border            = ft.Border.all(1, T["border"])
+        api_key_bar_container.bgcolor = T["surf2"]
+        api_key_bar_container.border  = ft.Border.all(1, T["border"])
         divider_ctrl.color            = T["border"]
 
         try:
@@ -488,18 +468,25 @@ def main(page: ft.Page) -> None:
         status_text.value  = s
         _repaint_status_dot()
         if s == "SCANNING":
-            scan_anim.visible     = False
+            scan_anim.visible     = True
             scan_anim.start()
             scan_progress.visible = True
             scan_msg_text.value   = _SCAN_MESSAGES[0]
             _scan_stop_event.clear()
             threading.Thread(target=_cycle_scan_messages, daemon=True).start()
         else:
-            _scan_stop_event.set()   
+            _scan_stop_event.set()   # unblocks the wait() in _cycle_scan_messages
             scan_anim.stop()
             scan_anim.visible     = False
             scan_progress.visible = False
-            
+        try:
+            status_dot.update()
+            status_text.update()
+            scan_anim.update()
+            scan_progress.update()
+        except Exception:
+            pass
+
     def show_banner(msg: str, ok: bool = False) -> None:
         T = C()
         col = T["accent"] if ok else T["red"]
@@ -508,23 +495,39 @@ def main(page: ft.Page) -> None:
         banner.bgcolor    = ft.Colors.with_opacity(0.09, col)
         banner.border     = ft.Border.all(1, ft.Colors.with_opacity(0.3, col))
         banner.visible    = True
+        try:
+            banner.update()
+        except Exception:
+            pass
 
     def hide_banner() -> None:
         banner.visible = False
+        try:
+            banner.update()
+        except Exception:
+            pass
 
     def refresh_metrics() -> None:
+        vulns = state["vulns"]
+        sq  = sum(1 for v in vulns if "SQL"       in v.get("type", ""))
+        xs  = sum(1 for v in vulns if "XSS"       in v.get("type", ""))
+        inf = sum(1 for v in vulns if "Sensitive"  in v.get("type", ""))
         val_endpoints.value = str(state["endpoints"])
-        val_sqli.value      = str(state["sqli_count"])
-        val_xss.value       = str(state["xss_count"])
-        val_info.value      = str(state["info_count"])
+        val_sqli.value      = str(sq)
+        val_xss.value       = str(xs)
+        val_info.value      = str(inf)
+        try:
+            for v in (val_endpoints, val_sqli, val_xss, val_info):
+                v.update()
+        except Exception:
+            pass
 
     def refresh_findings() -> None:
         T = C()
+        findings_col.controls.clear()
         vulns = state["vulns"]
-        controls_to_add = []
-
         if not state["scan_done"]:
-            controls_to_add.append(
+            findings_col.controls.append(
                 ft.Container(
                     content=ft.Row(
                         controls=[
@@ -543,7 +546,7 @@ def main(page: ft.Page) -> None:
                 )
             )
         elif not vulns:
-            controls_to_add.append(
+            findings_col.controls.append(
                 ft.Container(
                     content=ft.Row(
                         controls=[
@@ -564,21 +567,11 @@ def main(page: ft.Page) -> None:
             )
         else:
             for v in vulns:
-                controls_to_add.append(_vuln_tile(v))
-
-        findings_col.controls = controls_to_add
-
-    def display_completion_notification(msg: str, ok: bool = True) -> None:
-        T = C()
-        col = T["accent"] if ok else T["red"]
-        icon = ft.Icons.CHECK_CIRCLE_OUTLINE if ok else ft.Icons.ERROR_OUTLINE
-        
-        completion_notification.content.controls = [
-            ft.Icon(icon, color=ft.Colors.WHITE, size=18),
-            ft.Text(msg, color=ft.Colors.WHITE, size=13, weight=ft.FontWeight.W_600, style=ft.TextStyle(font_family=MONO))
-        ]
-        completion_notification.bgcolor = col
-        completion_notification.visible = True
+                findings_col.controls.append(_vuln_tile(v))
+        try:
+            findings_col.update()
+        except Exception:
+            pass
 
     def run_scan(target_url: str, scan_type: str) -> None:
         client = ApiClient(state["api_key"])
@@ -587,20 +580,13 @@ def main(page: ft.Page) -> None:
         except httpx.HTTPStatusError as e:
             try:
                 detail = e.response.json().get("detail", str(e))
-                # Extract clean message if FastAPI returned a validation list
-                if isinstance(detail, list) and len(detail) > 0 and "msg" in detail[0]:
-                    detail = detail[0]["msg"].replace("Value error, ", "")
             except Exception:
                 detail = str(e)
-            set_status("ERROR")
-            show_banner(f"API error: {detail}")
-            page.update()
+            page.run_thread(lambda: (set_status("ERROR"), show_banner(f"API error: {detail}")))
             return
         except Exception as e:
             err = str(e)
-            set_status("ERROR")
-            show_banner(f"Cannot reach backend: {err}")
-            page.update()
+            page.run_thread(lambda: (set_status("ERROR"), show_banner(f"Cannot reach backend: {err}")))
             return
 
         scan_id = resp["scan_id"]
@@ -609,48 +595,41 @@ def main(page: ft.Page) -> None:
 
         while time.time() < deadline:
             time.sleep(2)
+            # Check if user cancelled / page closed
             if state.get("status") != "SCANNING":
                 return
             try:
                 result = client.poll_scan(scan_id)
             except Exception:
                 continue
-            
             if result["status"] in ("done", "error"):
-                # Handle results synchronously in background thread
-                state["vulns"]      = result.get("vulnerabilities", [])
-                state["endpoints"]  = result.get("endpoints_count", 0)
-                state["sqli_count"] = result.get("sqli_count", 0)
-                state["xss_count"]  = result.get("xss_count", 0)
-                state["info_count"] = result.get("info_count", 0)
-                state["scan_done"]  = True
-                
-                refresh_metrics()
-                refresh_findings()
-                
-                if result["status"] == "error":
-                    set_status("ERROR")
-                    show_banner("Scan completed with backend errors.")
-                    display_completion_notification("Scan finished with errors.", ok=False)
-                else:
-                    set_status("DONE")
-                    hide_banner()
-                    n = len(state["vulns"])
-                    msg = f"Scan complete - {n} vulnerabilities found." if n > 0 else "Scan complete - target looks clean."
-                    display_completion_notification(msg, ok=True)
-                
-                try:
-                    page.update()
-                except Exception:
-                    pass
+                # Capture result values before crossing thread boundary
+                vulns     = result.get("vulnerabilities", [])
+                endpoints = result.get("endpoints_count", 0)
+                is_error  = result["status"] == "error"
+
+                def _finish(vulns=vulns, endpoints=endpoints, is_error=is_error):
+                    state["vulns"]     = vulns
+                    state["endpoints"] = endpoints
+                    state["scan_done"] = True
+                    if is_error:
+                        set_status("ERROR")
+                        show_banner("Scan completed with backend errors.")
+                        _show_snackbar("Scan finished with errors.", ok=False)
+                    else:
+                        set_status("DONE")
+                        hide_banner()
+                        n   = len(state["vulns"])
+                        msg = (f"Scan complete — {n} issue{'s' if n != 1 else ''} found."
+                               if n else "Scan complete — target looks clean.")
+                        _show_snackbar(msg, ok=True)
+                    refresh_metrics()
+                    refresh_findings()
+
+                page.run_thread(_finish)
                 return
 
-        set_status("ERROR")
-        show_banner("Scan timed out waiting for backend.")
-        try:
-            page.update()
-        except Exception:
-            pass
+        page.run_thread(lambda: (set_status("ERROR"), show_banner("Scan timed out waiting for backend.")))
 
     _URL_RE = re.compile(
         r"^(https?://)?(localhost|([a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?\.)+[a-z]{2,})"
@@ -658,26 +637,41 @@ def main(page: ft.Page) -> None:
         re.IGNORECASE,
     )
 
+    def _show_snackbar(msg: str, ok: bool = True) -> None:
+        T = C()
+        col = T["accent"] if ok else T["red"]
+        page.open(
+            ft.SnackBar(
+                content=ft.Row(
+                    controls=[
+                        ft.Icon(
+                            ft.Icons.CHECK_CIRCLE_OUTLINE if ok else ft.Icons.ERROR_OUTLINE,
+                            color=ft.Colors.WHITE, size=16,
+                        ),
+                        ft.Text(msg, color=ft.Colors.WHITE, size=12,
+                                style=ft.TextStyle(font_family=MONO)),
+                    ],
+                    spacing=10,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                bgcolor=col,
+                duration=3000,
+                show_close_icon=True,
+                close_icon_color=ft.Colors.WHITE,
+            )
+        )
+
     def validate_and_scan(scan_type: str) -> None:
         hide_banner()
-        completion_notification.visible = False
-        
-        # Determine API Key Context
-        if has_default_key:
-            state["api_key"] = DEFAULT_API_KEY
-        else:
-            api_key = (api_key_field.value or "").strip()
-            if not api_key:
-                show_banner("⚠  API key is required.")
-                page.update()
-                return
-            state["api_key"] = api_key
+        api_key = api_key_field.value.strip()
+        if not api_key:
+            show_banner("⚠  API key is required.")
+            return
+        state["api_key"] = api_key
 
-        # Safely handle NoneType URLs
-        target = (url_field.value or "").strip()
+        target = url_field.value.strip()
         if not target:
             show_banner("⚠  Target URL cannot be empty.")
-            page.update()
             return
 
         target_check = target if target.startswith(("http://", "https://")) else "https://" + target
@@ -685,28 +679,24 @@ def main(page: ft.Page) -> None:
             show_banner(f"⚠  '{target}' is not a valid URL. Enter a proper domain or localhost.")
             url_field.border_color = C()["red"]
             url_field.focused_border_color = C()["red"]
-            page.update()
+            url_field.update()
             return
 
         url_field.border_color         = C()["border"]
         url_field.focused_border_color = C()["accent"]
+        url_field.update()
 
         if not target.startswith(("http://", "https://")):
             target = "https://" + target
             url_field.value = target
+            url_field.update()
 
-        state["vulns"]      = []
-        state["endpoints"]  = 0
-        state["sqli_count"] = 0
-        state["xss_count"]  = 0
-        state["info_count"] = 0
-        state["scan_done"]  = False
-        
+        state["vulns"]     = []
+        state["endpoints"] = 0
+        state["scan_done"] = False
         refresh_metrics()
         refresh_findings()
         set_status("SCANNING")
-        
-        page.update()
         threading.Thread(target=run_scan, args=(target, scan_type), daemon=True).start()
 
     def on_quick(e: ft.ControlEvent) -> None:
@@ -749,8 +739,11 @@ def main(page: ft.Page) -> None:
     btn_deep_text  = ft.Text("Deep Scan", weight=ft.FontWeight.W_700,
                               color=ft.Colors.WHITE, size=13)
 
-    def _scan_btn(icon_data: str, label_ref: ft.Text, on_click) -> ft.Button:
-        return ft.Button(
+    key_icon = ft.Icon(ft.Icons.VPN_KEY_OUTLINED, color=DARK["muted"], size=15)
+
+    # ── Updated Button factory matching frontend.py ────────────────
+    def _scan_btn(icon_data: str, label_ref: ft.Text, on_click) -> ft.ElevatedButton:
+        return ft.ElevatedButton(
             content=ft.Row(
                 controls=[
                     ft.Icon(icon_data, size=16, color=ft.Colors.WHITE),
@@ -780,17 +773,26 @@ def main(page: ft.Page) -> None:
         padding=ft.Padding(left=12, right=16, top=6, bottom=6),
     )
 
+    api_key_bar_container = ft.Container(
+        content=ft.Row(
+            controls=[key_icon, api_key_field],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=DARK["surf2"],
+        border=ft.Border.all(1, DARK["border"]),
+        border_radius=12,
+        padding=ft.Padding(left=14, right=10, top=4, bottom=4),
+        margin=ft.margin.only(left=60, right=60, bottom=20),
+    )
+
     divider_ctrl = ft.Divider(height=1, color=DARK["border"])
 
     def on_toggle_theme(e: ft.ControlEvent) -> None:
         state["dark"] = not state["dark"]
         page.theme_mode = ft.ThemeMode.DARK if state["dark"] else ft.ThemeMode.LIGHT
-        
-        # 1. Update dynamic lists first so new elements get the right colors
-        refresh_findings()
-        
-        # 2. Re-theme the static elements and push to the UI simultaneously
         apply_theme()
+        refresh_findings()
 
     toggle_btn.on_click = on_toggle_theme
 
@@ -833,15 +835,9 @@ def main(page: ft.Page) -> None:
         padding=ft.Padding(left=60, right=60, top=0, bottom=0),
     )
 
-    api_key_row = ft.Container(
-        content=api_key_field,
-        margin=ft.Margin(left=60, right=60, top=0, bottom=14),
-        visible=not has_default_key,
-    )
-
     url_row = ft.Container(
         content=url_field,
-        margin=ft.Margin(left=60, right=60, top=0, bottom=14),
+        margin=ft.margin.only(left=60, right=60, bottom=14),
     )
 
     btn_row = ft.Container(
@@ -861,25 +857,30 @@ def main(page: ft.Page) -> None:
                 ft.Container(expand=True),
             ],
         ),
-        margin=ft.Margin(left=60, right=60, top=0, bottom=8),
+        margin=ft.margin.only(left=60, right=60, bottom=8),
     )
 
     progress_row = ft.Container(
         content=scan_progress,
-        margin=ft.Margin(left=60, right=60, top=0, bottom=4),
+        margin=ft.margin.only(left=60, right=60, bottom=4),
     )
 
     banner_row = ft.Container(
         content=banner,
-        margin=ft.Margin(left=60, right=60, top=0, bottom=4),
+        margin=ft.margin.only(left=60, right=60, bottom=4),
     )
 
     metrics_row = ft.Container(
         content=ft.Row(
-            controls=metric_cards,
+            controls=[
+                _metric_card("Endpoints",          val_endpoints),
+                _metric_card("Critical (SQLi)",    val_sqli),
+                _metric_card("High (XSS)",         val_xss),
+                _metric_card("Medium (Info Leak)", val_info),
+            ],
             spacing=14,
         ),
-        margin=ft.Margin(left=60, right=60, top=28, bottom=28),
+        margin=ft.margin.only(left=60, right=60, top=28, bottom=28),
     )
 
     findings_section = ft.Container(
@@ -891,7 +892,7 @@ def main(page: ft.Page) -> None:
             ],
             spacing=0,
         ),
-        margin=ft.Margin(left=60, right=60, top=0, bottom=50),
+        margin=ft.margin.only(left=60, right=60, bottom=50),
     )
 
     footer = ft.Container(
@@ -909,14 +910,13 @@ def main(page: ft.Page) -> None:
             controls=[
                 top_nav,
                 page_header,
-                api_key_row,
+                api_key_bar_container,
                 url_row,
                 btn_row,
                 progress_row,
                 banner_row,
                 divider_ctrl,
                 metrics_row,
-                completion_notification,
                 findings_section,
                 footer,
             ],
